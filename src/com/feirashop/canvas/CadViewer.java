@@ -1,4 +1,4 @@
-package com.example.canvas;
+package com.feirashop.canvas;
 
 
 import com.example.feirashopcanvas.R;
@@ -27,7 +27,10 @@ public class CadViewer extends View{
 	
 	private float maxScale;
 	private float minScale;
-	
+	private ElementList elementList;
+	private ElementClickListener onElementClickListener;
+		
+
 	/**
 	 * Classe utilizada para armazenar coordenadas (X,Y) de elementos
 	 * @author William
@@ -55,6 +58,7 @@ public class CadViewer extends View{
 		}
 	} 
 		
+	private boolean allowMoving;
 	private boolean moving;
 	
 
@@ -96,7 +100,14 @@ public class CadViewer extends View{
 		Paint paint = new Paint();
 		paint.setColor(Color.BLACK);
 		clipBounds = canvas.getClipBounds();
-		//canvas.drawCircle(67.73832f*mScaleFactor, 245.35135f*mScaleFactor, 10.0f, paint);
+	//	canvas.drawCircle((749.96490f + coordinates.getX())*mScaleFactor, (531.3966993f+ coordinates.getY())*mScaleFactor , 10.0f*mScaleFactor, paint);		
+		
+		if(this.elementList != null){
+			for (Element element : this.elementList.getElementList()) {
+				canvas.drawCircle(((float)element.getX() + coordinates.getX())*mScaleFactor, ((float)element.getY()+ coordinates.getY())*mScaleFactor , 30.0f*mScaleFactor, paint);
+			}
+		}
+		
 	}
 	
 	@Override
@@ -118,23 +129,40 @@ public class CadViewer extends View{
 	    if(event.getAction()==MotionEvent.ACTION_DOWN){	    	
 	    	previousCoordinates.setX(touchX);
 	    	previousCoordinates.setY(touchY);
-	    	moving = true;
+	    	moving = false;
+	    	allowMoving = true;
 	    
 	    //Ao movimentar, desloca a imagem pelo valor da diferença entre a coordenada atual e a anterior	
 	    }else if(event.getAction()==MotionEvent.ACTION_MOVE){
 	    	//O deslocamento da imagem fica bloqueado enquanto a imagem está sendo escalada pelo movimento de "Pinça"
-	    	if((!mScaleDetector.isInProgress())&&(moving)){
+	    	if((!mScaleDetector.isInProgress())&&(allowMoving)){
 	    		coordinates.setX(coordinates.getX()-(previousCoordinates.getX()-touchX));
 	    		coordinates.setY(coordinates.getY()-(previousCoordinates.getY()-touchY));
 	    		
 	    		//Após deslocar a imagem, iguala as coordenadas anteriores às atuais
 	    		previousCoordinates.setX(touchX); 
 	    		previousCoordinates.setY(touchY);
+	    		moving = true;
 	    	}
 	    
 	    //Ao "levantar" o dedo, desbloqueia o deslocamento da imagem.
-	    }else if(event.getAction()==MotionEvent.ACTION_UP){	    	
-	    	moving = true;
+	    }else if(event.getAction()==MotionEvent.ACTION_UP){
+	    	
+	    	if((!mScaleDetector.isInProgress())&&(allowMoving)&&(!moving)){
+	    		if(this.elementList!=null){
+		    		Element elemento = this.findMatch(touchX,touchY,30.0f);
+		    		if(elemento != null){
+		    		//if((previousCoordinates.getX() == touchX)&&(previousCoordinates.getY() == touchY)){
+			    		if(onElementClickListener!=null){
+			    			onElementClickListener.onElementCLick(elemento.getName());
+			    		}
+			    	//}
+		    		}
+	    		}
+	    	}
+	    	
+	    	allowMoving = true;
+	    	moving      = false;
 	    	previousCoordinates.setX(touchX);
 	    	previousCoordinates.setY(touchY);
 	    }
@@ -144,6 +172,31 @@ public class CadViewer extends View{
 	    invalidate();
 		return true;
 	}
+	
+	
+	private Element findMatch(double x, double y, double raio){
+		for (Element item : this.elementList.getElementList()) {
+			
+			double newX = (x - coordinates.getX());
+			double newY = (y - coordinates.getY());
+			double centerX = item.getX();
+			double centerY = item.getY();
+			//double width   = item.getWidth()*mScaleFactor;
+			//double height  = item.getHeight()*mScaleFactor;
+			//double raio  = width > height ? width : height;
+			//raio = raio;			
+			
+			double distancia = Math.sqrt(Math.pow((centerX - newX),2) + Math.pow((centerY - newY),2));
+			if((distancia < raio)||(distancia==raio)){
+				return item;
+			}
+		}
+		return null;
+	}
+	
+	
+	
+	
 	
 	/**
 	 * Listener que trata a ocorrência do movimento de "pinça" para aumentar
@@ -163,7 +216,7 @@ public class CadViewer extends View{
 		 */
 		@Override
 		public boolean onScale(ScaleGestureDetector detector) {
-			moving   = false;
+			allowMoving   = false;
 			mScaleFactor *= detector.getScaleFactor();
 			
 	        // Don't let the object get too small or too large.
@@ -255,4 +308,36 @@ public class CadViewer extends View{
 		this.coordinates.setX(x);
 		this.coordinates.setY(y);
 	}
+	
+	/**
+	 * Retorna a lista de elementos a exibidos no canvas. 
+	 * @return {@link ElementList} contendo instâncias de {@link Element}
+	 */
+	public ElementList getStandList() {
+		return elementList;
+	}
+	
+	/**
+	 * Altera a lista de elementos a serem reconhecidos na imagem.
+	 * Cada elemento contém seu codigo e coordenadas, de forma que,
+	 * ao clicar dentro do raio de um desses elementos no canvas, dispara
+	 * um evento onElementClick.
+	 * 
+	 * @param elementList - {@link ElementList} contendo instâncias de {@link Element} a serem 
+	 * reconhecidos no canvas 
+	 */
+	public void setElementList(ElementList elementList) {
+		this.elementList = elementList;
+	}
+		
+	/**
+	 * Registra um listener para eventos de onClick em elementos representados no Canvas
+	 * @param onElementClickListener - o {@link ElementClickListener} a ser registrado.
+	 * @see ElementClickListener
+	 */
+	public void setOnElementClickListener(
+			ElementClickListener onElementClickListener) {
+		this.onElementClickListener = onElementClickListener;
+	}
+		
 }
