@@ -1,8 +1,6 @@
 package com.feirashop.canvas;
 
 
-import com.example.feirashopcanvas.R;
-
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -18,8 +16,27 @@ import android.view.View;
 
 public class CadViewer extends View{
 
-	private Bitmap bmp1;
+	/**
+	 * Estratégia para definição da região de um {@link Element}: Utiliza os limites do elemento.
+	 * A área é definida de maneira a conter toda a área do elemento.
+	 */
+	public static final int REGION_STRAT_USE_ELEMENT_BOUNDS = 1;
+	
+	/**
+	 * Estratégia para definição da região de um {@link Element}: Utiliza um valor fixo para a área dos elementos.
+	 * O valor padrão é 30.
+	 * O valor pode ser alterado através do método {@link #setElementRegionRadius(double)}
+	 */
+	public static final int REGION_STRAT_USE_FIX_VALUE = 2;
+	
+	private Bitmap bitmap;
+	private Paint  entityAreaPaint;
 	private float mScaleFactor;
+	private int regionStrategy;
+	private double elementRegionRadius;
+	private double elementRegionScaleFactor;
+	private boolean showElementRegionEnabled;
+	
 	private ScaleGestureDetector mScaleDetector;
 	private Rect clipBounds;
 	private Coordinates coordinates;
@@ -28,62 +45,36 @@ public class CadViewer extends View{
 	private float maxScale;
 	private float minScale;
 	private ElementList elementList;
-	private ElementClickListener onElementClickListener;
-		
-
-	/**
-	 * Classe utilizada para armazenar coordenadas (X,Y) de elementos
-	 * @author William
-	 */
-	public class Coordinates{
-		private float x;
-		private float y;
-		
-		public Coordinates(){
-			this.x = -500;
-			this.y = -500;
-		}
-		
-		public void setX(float x){
-			this.x = x;
-		}
-		public void setY(float y){
-			this.y = y;
-		}
-		public float getX(){
-			return this.x;
-		}
-		public float getY(){
-			return this.y;
-		}
-	} 
+	private ElementClickListener onElementClickListener;	
 		
 	private boolean allowMoving;
 	private boolean moving;
-	
-
+		
 	
 	public CadViewer(Context context) {
 		super(context);
-		mScaleDetector = new ScaleGestureDetector(context,new ScaleGestureListener());
-		bmp1 =  BitmapFactory.decodeResource(getResources(), R.drawable.teste);
-		mScaleFactor = 1;
-		coordinates = new Coordinates();
-		previousCoordinates = new Coordinates();
-		maxScale = 5.0f;
-		minScale = 0.1f;
+		this.init(context);
 	}
 	public CadViewer(Context context, AttributeSet ats){
 		super(context, ats);
-		mScaleDetector = new ScaleGestureDetector(context,new ScaleGestureListener());				
-		bmp1 =  BitmapFactory.decodeResource(getResources(), R.drawable.teste);
+		this.init(context);
+	}
+	
+	private void init(Context context){
+		mScaleDetector = new ScaleGestureDetector(context,new ScaleGestureListener());
+		//bitmap =  BitmapFactory.decodeResource(getResources(), R.drawable.teste);
 		mScaleFactor = 1;
 		coordinates = new Coordinates();
 		previousCoordinates = new Coordinates();
-		maxScale = 5.0f;
-		minScale = 0.1f;
+		maxScale = 5.0f;								  //Por padrão, o valor máximo de escala permitido é 5.0	 
+		minScale = 0.1f;								  //Por padrão, o valor mínimo de escala permitido é 0.1	
+		entityAreaPaint = new Paint();
+		entityAreaPaint.setAlpha(50); 					  //Por padrão, a região clicável é exibida com alpha = 50 (transparência)
+		entityAreaPaint.setColor(Color.BLACK); 			  //Por padrão, utiliza a cor preta para as regiões clicáveis (elementos)
+		regionStrategy = REGION_STRAT_USE_ELEMENT_BOUNDS; //Por padrão, utiliza a própria dos elementos como limite da região clicável 
+		elementRegionScaleFactor = 1;					  //Por padrão, o multiplicador da região é 1
+		elementRegionRadius = 30;						  //Por padrão, o raio da região clicável é 30 (Apenas quando utilizar estratégia REGION_STRAT_USE_FIX_VALUE 
 	}
-	
 	
 	@Override
 	protected void onDraw(Canvas canvas) {	
@@ -94,17 +85,19 @@ public class CadViewer extends View{
 		canvas.scale(mScaleFactor, mScaleFactor);
 		
 		//Desenha a imagem no canvas
-		canvas.drawBitmap(bmp1, coordinates.getX(), coordinates.getY(), null);
+		if(bitmap != null){
+			canvas.drawBitmap(bitmap, coordinates.getX(), coordinates.getY(), null);
+		}
 		
-		canvas.restore();
-		Paint paint = new Paint();
-		paint.setColor(Color.BLACK);
+		canvas.restore();		
 		clipBounds = canvas.getClipBounds();
 	//	canvas.drawCircle((749.96490f + coordinates.getX())*mScaleFactor, (531.3966993f+ coordinates.getY())*mScaleFactor , 10.0f*mScaleFactor, paint);		
 		
-		if(this.elementList != null){
-			for (Element element : this.elementList.getElementList()) {
-				canvas.drawCircle(((float)element.getX() + coordinates.getX())*mScaleFactor, ((float)element.getY()+ coordinates.getY())*mScaleFactor , 30.0f*mScaleFactor, paint);
+		if(showElementRegionEnabled){
+			if(this.elementList != null){
+				for (Element element : this.elementList.getElementList()) {
+					canvas.drawCircle(((float)element.getCenterX() + coordinates.getX())*mScaleFactor, ((float)element.getCenterY()+ coordinates.getY())*mScaleFactor , (float)getElementArea(element) *mScaleFactor, entityAreaPaint);
+				}
 			}
 		}
 		
@@ -150,11 +143,11 @@ public class CadViewer extends View{
 	    	
 	    	if((!mScaleDetector.isInProgress())&&(allowMoving)&&(!moving)){
 	    		if(this.elementList!=null){
-		    		Element elemento = this.findMatch(touchX,touchY,30.0f);
+		    		Element elemento = this.findMatch(touchX,touchY);
 		    		if(elemento != null){
 		    		//if((previousCoordinates.getX() == touchX)&&(previousCoordinates.getY() == touchY)){
 			    		if(onElementClickListener!=null){
-			    			onElementClickListener.onElementCLick(elemento.getName());
+			    			onElementClickListener.onElementCLick(elemento);
 			    		}
 			    	//}
 		    		}
@@ -174,17 +167,14 @@ public class CadViewer extends View{
 	}
 	
 	
-	private Element findMatch(double x, double y, double raio){
+	private Element findMatch(double x, double y){
 		for (Element item : this.elementList.getElementList()) {
 			
 			double newX = (x - coordinates.getX());
 			double newY = (y - coordinates.getY());
-			double centerX = item.getX();
-			double centerY = item.getY();
-			//double width   = item.getWidth()*mScaleFactor;
-			//double height  = item.getHeight()*mScaleFactor;
-			//double raio  = width > height ? width : height;
-			//raio = raio;			
+			double centerX = item.getCenterX();
+			double centerY = item.getCenterY();
+			double raio    = getElementArea(item);
 			
 			double distancia = Math.sqrt(Math.pow((centerX - newX),2) + Math.pow((centerY - newY),2));
 			if((distancia < raio)||(distancia==raio)){
@@ -195,7 +185,17 @@ public class CadViewer extends View{
 	}
 	
 	
-	
+	private double getElementArea(Element element){
+		if(this.regionStrategy == REGION_STRAT_USE_ELEMENT_BOUNDS){
+			double width   = element.getWidth();
+			double height  = element.getHeight();
+			double raio  = width > height ? width : height;
+			return (raio/2) * this.elementRegionScaleFactor;
+		}else if(this.regionStrategy == REGION_STRAT_USE_FIX_VALUE){
+			return this.elementRegionRadius * this.elementRegionScaleFactor;
+		}
+		return -1;
+	}
 	
 	
 	/**
@@ -278,7 +278,7 @@ public class CadViewer extends View{
 	
 	/**
 	 * Retorna as coordenadas atuais da imagem no canvas
-	 * @return - A {@link Coordinates} object containing the image coordinates
+	 * @return - Um objeto {@link Coordinates} contendo as coordenadas da imagem
 	 */
 	public Coordinates getCoordinates(){
 		return this.coordinates;
@@ -289,10 +289,22 @@ public class CadViewer extends View{
 	 * implica na chamada imediata ao método {@link #Canvas.invalidate()}, causando o redesenho 
 	 * imediato do canvas.
 	 * 
-	 * @return - A {@link Coordinates} object containing the image coordinates
+	 * param coordinates - Um  objeto {@link Coordinates} contendo as coordenadas da imagem
 	 */
 	public void setCoordinates(Coordinates coordinates){
 		this.coordinates = coordinates;
+	}
+	
+	/**
+	 * Altera as coordenadas da imagem no canvas (Desloca a imagem); A utilização deste método 
+	 * implica na chamada imediata ao método {@link #Canvas.invalidate()}, causando o redesenho 
+	 * imediato do canvas.
+	 * 
+	 * @param x - A coordenada X da imagem
+	 * @param y - A coordenada Y da imagem
+	 */
+	public void setCoordinates(float x, float y){
+		this.coordinates = new Coordinates(x, y);
 	}
 	
 	/**
@@ -339,5 +351,117 @@ public class CadViewer extends View{
 			ElementClickListener onElementClickListener) {
 		this.onElementClickListener = onElementClickListener;
 	}
+	
+	/**
+	 * Altera o bitmap a ser desenhado no canvas
+	 * @param id - O resource id da imagem.
+	 */
+	public void setBitmapFromResourceID(int id){
+		this.bitmap =  BitmapFactory.decodeResource(getResources(), id);
+	}
+	
+	/**
+	 * Altera o bitmap a ser desenhado no canvas
+	 * @param id - O bitmap a ser desenhado.
+	 */
+	public void setBitmap(Bitmap bitmap){
+		this.bitmap = bitmap;
+	}
 		
+	/**
+	 * @return o bitmap desenhado no canvas
+	 */
+	public Bitmap getBitmap(){
+		return this.bitmap;
+	}
+	
+	/** 
+	 * @return {@link Paint} utilizado para desenhar as áreas em torno do elementos 
+	 */
+	public Paint getEntityAreaPaint() {
+		return entityAreaPaint;
+	}
+	
+	/**
+	 * Altera o {@link Paint} utilizado para desenhar as áreas em torno do elementos.
+	 * A chamada a este método causa a invalidação da view atual, forçando uma nova chamada ao método {@link #OnDrawListener.onDraw()}
+	 * @param entityAreaPaint
+	 */
+	public void setEntityAreaPaint(Paint entityAreaPaint) {
+		this.entityAreaPaint = entityAreaPaint;
+		invalidate();
+	}
+	
+	/**
+	 * @return a estratégia a ser utilizada para determinar os a região correspondente a um {@link Element}.
+	 * @see {@link #REGION_STRAT_USE_ELEMENT_BOUNDS} e {@link #REGION_STRAT_USE_FIX_VALUE}
+	 */
+	public int getRegionStrategy() {
+		return regionStrategy;
+	}
+	
+	/**
+	 * Define a estratégia a ser utilizada para determinar os a região correspondente a um {@link Element}.
+	 * @see {@link #REGION_STRAT_USE_ELEMENT_BOUNDS} e {@link #REGION_STRAT_USE_FIX_VALUE}
+	 * @param regionStrategy - A estratégia a ser utilizada.
+	 */
+	public void setRegionStrategy(int regionStrategy) {
+		this.regionStrategy = regionStrategy;
+	}
+	
+	/**
+	 * @return O raio de região compreendida por um {@link Element} quando a estratégia de definição de região estiver definida como
+	 * {@link #REGION_STRAT_USE_FIX_VALUE}.
+	 * @see {@link #setRegionStrategy(int)}
+	 */
+	public double getElementRegionRadius() {
+		return elementRegionRadius;
+	}
+	
+	/**
+	 * Altera o raio da região compreendida por um {@link Element}.
+	 * Este valor surge efeito apenas se a estratégia de definição de região estiver definida como
+	 * {@link #REGION_STRAT_USE_FIX_VALUE}.
+	 * @see {@link #setRegionStrategy(int)}
+	 * @param elementRegionRadius - O valor a ser utilizado como raio para a região do {@link Element}
+	 */
+	public void setElementRegionRadius(double elementRegionRadius) {
+		this.elementRegionRadius = elementRegionRadius;
+	}
+	
+	/**
+	 * @return - O fator de escala (multiplicador) sobre a região de todos os {@link Element}s
+	 * @see {@link #setElementRegionScaleFactor(double)}
+	 */
+	public double getElementRegionScaleFactor() {
+		return elementRegionScaleFactor;
+	}
+	
+	/**
+	 * Aplica um fator de escala (multiplicador) sobre a região de todos os {@link Element}s, independente da estratégia
+	 * de definição de área utilizada. O valor padrão é 1.
+	 * @param elementRegionScaleFactor - O valor a ser utilizado como multiplicador.  
+	 */
+	public void setElementRegionScaleFactor(double elementRegionScaleFactor) {
+		this.elementRegionScaleFactor = elementRegionScaleFactor;
+	}
+	
+	/**
+	 * Indica se a exibição da região clicável dos elementos está ativada.
+	 * @return <b>true</b> se estiver ativada e <b>false</b>, caso contrário.
+	 */
+	public boolean isShowElementRegionEnabled() {
+		return showElementRegionEnabled;
+	}
+	
+	/**
+	 * Ativa/Desativa a exibição da região clicável dos {@link Element}s no canvas;
+	 * @param showElementRegionEnabled - indica se ativa (<b>true</b>) ou desativa (<b>false</b>) a exibição.
+	 */
+	public void setShowElementRegionEnabled(boolean showElementRegionEnabled) {
+		this.showElementRegionEnabled = showElementRegionEnabled;
+		invalidate();
+	}
+	
+	
 }

@@ -11,6 +11,6 @@ public interface ElementClickListener {
 	 * Evento disparado ao clicar em um elemento exibido no canvas
 	 * @param element - código do elemento clicado
 	 */
-	public void onElementCLick(String element);
+	public void onElementCLick(Element element);
 	
 }
